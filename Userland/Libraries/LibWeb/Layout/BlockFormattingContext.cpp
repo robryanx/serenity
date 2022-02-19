@@ -87,7 +87,7 @@ void BlockFormattingContext::apply_transformations_to_children(Box& box)
     });
 }
 
-void BlockFormattingContext::compute_width(Box& box)
+void BlockFormattingContext::compute_width(Box& box, float column_auto_width)
 {
     if (box.is_absolutely_positioned()) {
         compute_width_for_absolutely_positioned_element(box);
@@ -109,6 +109,11 @@ void BlockFormattingContext::compute_width(Box& box)
 
     auto& computed_values = box.computed_values();
     float width_of_containing_block = box.containing_block()->content_width();
+
+    if (column_auto_width != -1) {
+        width_of_containing_block = column_auto_width;
+    }
+
     auto width_of_containing_block_as_length = CSS::Length::make_px(width_of_containing_block);
 
     auto zero_value = CSS::Length::make_px(0);
@@ -443,7 +448,11 @@ void BlockFormattingContext::layout_block_level_children(BlockContainer& block_c
         auto& width = block_container.computed_values().width();
         if (!width.has_value() || (width->is_length() && width->length().is_auto()))
             block_container.set_content_width(content_width);
-    }
+    } else {
+        auto& height = block_container.computed_values().height();
+        if (!height.has_value() || (height->is_length() && height->length().is_auto()))
+            block_container.set_content_height(content_height);
+    }   
 }
 
 void BlockFormattingContext::compute_vertical_box_model_metrics(Box& child_box, BlockContainer const& containing_block)

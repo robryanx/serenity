@@ -50,6 +50,8 @@ void TableFormattingContext::run(Box& box, LayoutMode)
             layout_row(row, column_widths);
             content_width = max(content_width, row.content_width());
             content_height += row.content_height();
+
+            dbgln("Row Height: {}", row.content_height());
         });
 
         if (row_group_box.computed_values().width().has_value() && row_group_box.computed_values().width()->is_length() && row_group_box.computed_values().width()->length().is_auto())
@@ -64,23 +66,62 @@ void TableFormattingContext::run(Box& box, LayoutMode)
     if (box.computed_values().width().has_value() && box.computed_values().width()->is_length() && box.computed_values().width()->length().is_auto())
         box.set_content_width(total_content_width);
 
+    dbgln("Height: {}", total_content_height);
+
     // FIXME: This is a total hack, we should respect the 'height' property.
-    box.set_content_height(total_content_height);
+    if (box.computed_values().height().has_value() && box.computed_values().height()->is_length() && box.computed_values().height()->length().is_auto()) {
+        box.set_content_height(total_content_height);
+    } else {
+        compute_height(box);
+
+        dbgln("Computed Height: {}", box.content_height());
+    }
 }
 
 void TableFormattingContext::calculate_column_widths(Box& row, Vector<float>& column_widths)
 {
     size_t column_index = 0;
+
+    // count columns with auto width
+    size_t columns_with_auto_width = 0;
+    float total_fixed_width = 0;
+    float column_auto_width = 0;
+
     auto* table = row.first_ancestor_of_type<TableBox>();
-    bool use_auto_layout = !table || (!table->computed_values().width().has_value() || (table->computed_values().width()->is_length() && table->computed_values().width()->length().is_auto()));
+
     row.for_each_child_of_type<TableCellBox>([&](auto& cell) {
         compute_width(cell);
-        if (use_auto_layout) {
+        if (cell.computed_values().width()->is_length() && cell.computed_values().width()->length().is_auto()) {
+            columns_with_auto_width++;
+        } else {
+            total_fixed_width += cell.content_width();
+        }
+    });
+
+    if (columns_with_auto_width > 0) {
+        column_auto_width = (table->content_width() - total_fixed_width) / columns_with_auto_width;
+    }
+
+    bool table_use_auto_layout = !table || (!table->computed_values().width().has_value() || (table->computed_values().width()->is_length() && table->computed_values().width()->length().is_auto()));
+    row.for_each_child_of_type<TableCellBox>([&](auto& cell) {
+        compute_width(cell, column_auto_width);
+
+        if (table_use_auto_layout) {
             (void)layout_inside(cell, LayoutMode::OnlyRequiredLineBreaks);
+
+            column_widths[column_index] = max(column_widths[column_index], cell.content_width());
         } else {
             (void)layout_inside(cell, LayoutMode::Default);
+
+            bool cell_use_auto_layout = !cell.computed_values().width().has_value() || (cell.computed_values().width()->is_length() && cell.computed_values().width()->length().is_auto());
+
+            if (cell_use_auto_layout) {
+                column_widths[column_index] = column_auto_width;
+            } else {
+                column_widths[column_index] = max(column_widths[column_index], cell.content_width());
+            }
         }
-        column_widths[column_index] = max(column_widths[column_index], cell.content_width());
+
         column_index += cell.colspan();
     });
 }
@@ -91,13 +132,13 @@ void TableFormattingContext::layout_row(Box& row, Vector<float>& column_widths)
     float tallest_cell_height = 0;
     float content_width = 0;
     auto* table = row.first_ancestor_of_type<TableBox>();
-    bool use_auto_layout = !table || (!table->computed_values().width().has_value() || (table->computed_values().width()->is_length() && table->computed_values().width()->length().is_auto()));
+    bool table_use_auto_layout = !table || (!table->computed_values().width().has_value() || (table->computed_values().width()->is_length() && table->computed_values().width()->length().is_auto()));
 
     row.for_each_child_of_type<TableCellBox>([&](auto& cell) {
         cell.set_offset(row.effective_offset().translated(content_width, 0));
 
         // Layout the cell contents a second time, now that we know its final width.
-        if (use_auto_layout) {
+        if (table_use_auto_layout) {
             (void)layout_inside(cell, LayoutMode::OnlyRequiredLineBreaks);
         } else {
             (void)layout_inside(cell, LayoutMode::Default);
@@ -109,7 +150,7 @@ void TableFormattingContext::layout_row(Box& row, Vector<float>& column_widths)
         tallest_cell_height = max(tallest_cell_height, cell.content_height());
     });
 
-    if (use_auto_layout) {
+    if (table_use_auto_layout) {
         row.set_content_width(content_width);
     } else {
         row.set_content_width(table->content_width());
