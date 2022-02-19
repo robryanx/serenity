@@ -1,0 +1,18 @@
+<html>
+<head>
+<title>Jquery Test</title>
+<script src="jquery.js"></script>
+<script>
+    $(document).ready(function(e) {
+        $.get( "test.json", function( data ) {
+            $("body").append(data.data);
+        }, "json" );
+    });
+</script>
+</head>
+<body>
+
+Test Load
+
+</body>
+</html>
